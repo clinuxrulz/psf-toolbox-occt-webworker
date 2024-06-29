@@ -26,6 +26,7 @@
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopExp_Explorer.hxx>
+#include <nlohmann/json.hpp>
 
 TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
                         const Standard_Real myThickness);
