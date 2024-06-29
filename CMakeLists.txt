@@ -3,7 +3,7 @@ cmake_minimum_required (VERSION 3.8)
 project(PsfToolboxOcctWebWorker CXX)
 set(CMAKE_CXX_STANDARD 14)
 
-add_link_options("--bind")
+add_link_options(--bind -sEXPORT_ES6=1 -sUSE_ES6_IMPORT_META=1 -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=['FS'] -O3)
 
 include_directories("C:/OCCT/work/occt-wasm32-make/inc")
 link_directories("C:/OCCT/work/occt-wasm32-make/lin32/clang/lib")
