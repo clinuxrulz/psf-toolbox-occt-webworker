@@ -1,0 +1,11 @@
+<html>
+    <head></head>
+    <body>
+        <script src="PsfToolboxOcctWebWorker.js"></script>
+        <script>
+            Module.onRuntimeInitialized = _ => {
+                console.log(Module.process_message('{ type: "makeBottle" }'));
+            };
+        </script>
+    </body>
+</html>
