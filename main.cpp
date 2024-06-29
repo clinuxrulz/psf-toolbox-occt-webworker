@@ -1,4 +1,5 @@
 #include <emscripten.h>
+#include <emscripten/bind.h>
 #include <string>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -29,12 +30,14 @@
 TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
                         const Standard_Real myThickness);
 
-EMSCRIPTEN_KEEPALIVE
 std::string process_message(std::string message) {
     TopoDS_Shape shape = MakeBottle(1.0, 1.0, 1.0);
     return std::string("TODO");
 }
 
+EMSCRIPTEN_BINDINGS(psf_toolbox_occt_web_worker) {
+    emscripten::function("process_message", &process_message);
+}
 
 TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
                         const Standard_Real myThickness)
