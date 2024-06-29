@@ -1,6 +1,7 @@
 #include <emscripten.h>
 #include <emscripten/bind.h>
 #include <string>
+#include <map>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -28,11 +29,47 @@
 #include <TopExp_Explorer.hxx>
 #include <nlohmann/json.hpp>
 
+using json = nlohmann::json;
+
+static std::map<std::string, TopoDS_Shape> shapesHeap;
+
 TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
                         const Standard_Real myThickness);
 
+static unsigned long next_id = 0;
+
+std::string gen_unique_id() {
+    return std::to_string(next_id++);
+}
+
+json result_ok(json result) {
+    json result2 = {
+        {"type", "ok"},
+        {"value", result},
+    };
+    return result2;
+}
+
+json result_err(std::string message) {
+    json result = {
+        {"type", "err"},
+        {"value", message},
+    };
+    return result;
+}
+
 std::string process_message(std::string message) {
-    TopoDS_Shape shape = MakeBottle(1.0, 1.0, 1.0);
+    json data = json::parse(message);
+    std::string type = data["type"].template get<std::string>();
+    if (type == "setupOpenCascade") {
+        // Do nothing here, it is a legacy setup.
+        return result_ok((json){});
+    } else if (type == "makeBottle") {
+        TopoDS_Shape shape = MakeBottle(1.0, 1.0, 1.0);
+        auto shapeId = gen_unique_id();
+        shapesHeap[shapeId] = shape;
+        return result_ok((json){ { "shapeId", shapeId, }, });
+    }
     return std::string("TODO");
 }
 
