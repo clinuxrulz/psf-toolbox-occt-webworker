@@ -31,7 +31,7 @@
 
 using json = nlohmann::json;
 
-static std::map<std::string, TopoDS_Shape> shapesHeap;
+static std::map<std::string, TopoDS_Shape*> shapesHeap;
 
 TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
                         const Standard_Real myThickness);
@@ -59,16 +59,22 @@ json result_err(std::string message) {
 }
 
 std::string process_message(std::string message) {
-    json data = json::parse(message);
-    std::string type = data["type"].template get<std::string>();
-    if (type == "setupOpenCascade") {
-        // Do nothing here, it is a legacy setup.
-        return result_ok((json){});
-    } else if (type == "makeBottle") {
-        TopoDS_Shape shape = MakeBottle(1.0, 1.0, 1.0);
-        auto shapeId = gen_unique_id();
-        shapesHeap[shapeId] = shape;
-        return result_ok((json){ { "shapeId", shapeId, }, });
+    try {
+        json data = json::parse(message);
+        std::string type = data["type"].template get<std::string>();
+        if (type == "setupOpenCascade") {
+            // Do nothing here, it is a legacy setup.
+            return result_ok((json){});
+        } else if (type == "makeBottle") {
+            TopoDS_Shape shape = MakeBottle(1.0, 1.0, 1.0);
+            auto shapeId = gen_unique_id();
+            shapesHeap[shapeId] = new TopoDS_Shape(shape);
+            return result_ok((json){ { "shapeId", shapeId, }, });
+        }
+    } catch (Standard_Failure err) {
+        return result_err(err.GetMessageString());
+    } catch (json::exception err) {
+        return result_err(err.what());
     }
     return std::string("TODO");
 }
