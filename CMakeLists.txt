@@ -3,7 +3,7 @@ cmake_minimum_required (VERSION 3.8)
 project(PsfToolboxOcctWebWorker CXX)
 set(CMAKE_CXX_STANDARD 14)
 
-add_link_options(--bind -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=['FS'] -O0)
+add_link_options(--bind -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=['FS'] -sNO_DISABLE_EXCEPTION_CATCHING -O0)
 
 include_directories(
     "C:/nlohmann-json/single_include"
