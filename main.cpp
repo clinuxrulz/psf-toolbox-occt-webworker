@@ -35,7 +35,7 @@ std::string process_message(std::string message) {
     return std::string("TODO");
 }
 
-EMSCRIPTEN_BINDINGS(psf_toolbox_occt_web_worker) {
+EMSCRIPTEN_BINDINGS(my_module) {
     emscripten::function("process_message", &process_message);
 }
 
