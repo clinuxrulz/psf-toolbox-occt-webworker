@@ -26,9 +26,13 @@
 #include <TopoDS_Wire.hxx>
 #include <TopExp_Explorer.hxx>
 
+TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
+                        const Standard_Real myThickness);
+
 EMSCRIPTEN_KEEPALIVE
 std::string process_message(std::string message) {
-    return std::string("TODO");    
+    TopoDS_Shape shape = MakeBottle(1.0, 1.0, 1.0);
+    return std::string("TODO");
 }
 
 

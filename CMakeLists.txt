@@ -5,5 +5,21 @@ set(CMAKE_CXX_STANDARD 14)
 
 include_directories("C:/OCCT/work/occt-wasm32-make/inc")
 link_directories("C:/OCCT/work/occt-wasm32-make/lin32/clang/lib")
+link_libraries(
+    TKernel
+    TKBool
+    TKBRep
+    TKBO
+    TKFillet
+    TKG2d
+    TKG3d
+    TKGeomAlgo
+    TKGeomBase
+    TKMath
+    TKOffset
+    TKPrim
+    TKShHealing
+    TKTopAlgo
+)
 
 add_executable(PsfToolboxOcctWebWorker main.cpp)
