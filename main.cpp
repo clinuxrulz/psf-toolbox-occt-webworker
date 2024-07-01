@@ -82,6 +82,7 @@ json shape_to_edges(json params);
 json fillet_edge(json params);
 json cut_v2(json params);
 json shape_faces(json params);
+json fuse_shapes_with_transforms(json params);
 
 std::string process_message(std::string message) {
     try {
