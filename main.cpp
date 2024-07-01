@@ -83,6 +83,7 @@ json fillet_edge(json params);
 json cut_v2(json params);
 json shape_faces(json params);
 json fuse_shapes_with_transforms(json params);
+json extrude_face(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -120,6 +121,8 @@ std::string process_message(std::string message) {
             return shape_faces(data["params"]);
         } else if (type == "fuseShapesWithTransforms") {
             return fuse_shapes_with_transforms(data["params"]);
+        } else if (type == "extrudeFace") {
+            return extrude_face(data["params"]);
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -688,4 +691,57 @@ json fuse_shapes_with_transforms(json params) {
     auto shapeId = gen_unique_id();
     shapesHeap[shapeId] = new TopoDS_Shape(result);
     return result_ok(shapeId);
+}
+
+json extrude_face(json params) {
+    auto shapeId = params["shapeId"].get<std::string>();
+    auto faceId = params["faceId"].get<std::string>();
+    auto direction = params["direction"];
+
+    // Retrieve the shape
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+
+    TopTools_ShapeMapHasher hasher;
+
+    // Find the face
+    TopoDS_Face face;
+    if (shapeId == faceId) {
+        face = TopoDS::Face(*shape);
+    } else {
+        TopExp_Explorer explorer(*shape, TopAbs_FACE);
+        while (explorer.More()) {
+            auto at = explorer.Current();
+            if (at.ShapeType() == TopAbs_FACE) {
+                auto at_face = TopoDS::Face(at);
+                if (std::to_string(hasher(at_face)) == faceId) {
+                    face = TopoDS::Face(at_face);
+                    break;
+                }
+            }
+            explorer.Next();
+        }
+    }
+
+    // Check if the face was found
+    if (face.IsNull()) {
+        return result_err("Face not found");
+    }
+
+    // Extrude the face
+    try {
+        gp_Vec directionVec(direction[0], direction[1], direction[2]);
+        BRepPrimAPI_MakePrism prism(face, directionVec, true, true);
+        prism.Build();
+        TopoDS_Shape extrudedShape = prism.Shape();
+
+        // Store the extruded shape in the heap
+        auto shapeId = gen_unique_id();
+        shapesHeap[shapeId] = new TopoDS_Shape(extrudedShape);
+        return result_ok(shapeId);
+    } catch (Standard_Failure const& ex) {
+        return result_err(std::string("Failed to extrude: ") + ex.GetMessageString());
+    }
 }
