@@ -24,6 +24,7 @@
 #include <GC_MakeSegment.hxx>
 #include <gp.hxx>
 #include <gp_Ax1.hxx>
+#include <gp_Quaternion.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Shape.hxx>
@@ -68,6 +69,8 @@ TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeigh
                         const Standard_Real myThickness);
 json save_shape_to_brep_base_64_string(json params);
 json load_shape_from_brep_base_64_string(json params);
+json apply_transform_to_shape(json params);
+json clone_shape(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -87,6 +90,10 @@ std::string process_message(std::string message) {
             return save_shape_to_brep_base_64_string(data["params"]);
         } else if (type == "loadShapeFromBrepBase64String") {
             return load_shape_from_brep_base_64_string(data["params"]);
+        } else if (type == "applyTransformToShape") {
+            return apply_transform_to_shape(data["params"]);
+        } else if (type == "cloneShape") {
+            return clone_shape(data["params"]);
         }
     } catch (Standard_Failure err) {
         return result_err(err.GetMessageString());
@@ -285,4 +292,36 @@ json load_shape_from_brep_base_64_string(json params) {
     auto shapeId = gen_unique_id();
     shapesHeap[shapeId] = new TopoDS_Shape(shape);
     return result_ok(shapeId);
+}
+
+json apply_transform_to_shape(json params) {
+    auto shapeId = params["shapeId"].template get<std::string>();
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+    json transform = params["transform"];
+    json o = transform["o"];
+    json q = transform["q"];
+    gp_Trsf transform2;
+    transform2.SetTranslationPart(gp_Vec(o[0], o[1], o[2]));
+    transform2.SetRotationPart(gp_Quaternion(q[1], q[2], q[3], q[0]));
+    BRepBuilderAPI_Transform builder(transform2);
+    builder.Perform(*shape);
+    builder.Build();
+    TopoDS_Shape result = builder.Shape();
+    auto id = gen_unique_id();
+    shapesHeap[id] = new TopoDS_Shape(result);
+    return result_ok(id);
+}
+
+json clone_shape(json params) {
+    auto shapeId = params["shapeId"].template get<std::string>();
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+    auto id = gen_unique_id();
+    shapesHeap[id] = new TopoDS_Shape(*shape);
+    return result_ok(id);
 }
