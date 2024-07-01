@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 14)
 add_compile_options(
     -fexceptions
     -gseparate-dwarf
+    --use-port=zlib
 )
 
 # -O3 for release
@@ -18,6 +19,7 @@ add_link_options(
     -sMAXIMUM_MEMORY=4GB
     -sSTACK_SIZE=5MB
     -sALLOW_MEMORY_GROWTH=1
+    --use-port=zlib
 )
 
 include_directories(
@@ -42,4 +44,4 @@ link_libraries(
     TKTopAlgo
 )
 
-add_executable(PsfToolboxOcctWebWorker main.cpp)
+add_executable(PsfToolboxOcctWebWorker main.cpp gzip.cpp base64.cpp)

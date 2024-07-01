@@ -13,6 +13,7 @@
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepTools.hxx>
 #include <GCE2d_MakeSegment.hxx>
 #include <Geom2d_Ellipse.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
@@ -28,18 +29,24 @@
 #include <TopoDS_Wire.hxx>
 #include <TopExp_Explorer.hxx>
 #include <nlohmann/json.hpp>
+#include "gzip.hpp"
+#include "base64.hpp"
 
 using json = nlohmann::json;
 
 static std::map<std::string, TopoDS_Shape*> shapesHeap;
 
-TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
-                        const Standard_Real myThickness);
-
 static unsigned long next_id = 0;
 
 std::string gen_unique_id() {
     return std::to_string(next_id++);
+}
+
+std::string result_ok() {
+    return ((json){
+        { "type", "ok", },
+        { "value", (json){}, }
+    }).dump();
 }
 
 std::string result_ok(json result) {
@@ -52,9 +59,13 @@ std::string result_ok(json result) {
 std::string result_err(std::string message) {
     return ((json){
         { "type", "err", },
-        { "message", "message", },
+        { "message", message, },
     }).dump();
 }
+
+TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
+                        const Standard_Real myThickness);
+json save_shape_to_brep_base_64_string(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -70,6 +81,8 @@ std::string process_message(std::string message) {
             return result_ok((json){
                 { "shapeId", shapeId, },
             });
+        } else if (type == "saveShapeToBrepBase64String") {
+            return save_shape_to_brep_base_64_string(data["params"]);
         }
     } catch (Standard_Failure err) {
         return result_err(err.GetMessageString());
@@ -219,4 +232,31 @@ MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
   aBuilder.Add (aRes, myThreading);
 
   return aRes;
+}
+
+json save_shape_to_brep_base_64_string(json params) {
+    auto shapeId = params["shapeId"].template get<std::string>();
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+    BRepTools::Write(*shape, "./output.brep");
+    // Compress file
+    gz_compress_file("./output.brep", "./output.brep.gz");
+    // Remove uncompressed file
+    unlink("./output.brep");
+    // Copy file to string
+    std::string result;
+    std::ifstream f("./output.brep.gz", std::ios::binary);
+    f.seekg(0, std::ios::end);
+    result.reserve(f.tellg());
+    f.seekg(0, std::ios::beg);
+    result.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    f.close();
+    // Base64 encode
+    result = base64_encode(result);
+    // Remove compressed file
+    unlink("./output.brep.gz");
+    // Return result
+    return result_ok(result);
 }
