@@ -30,6 +30,7 @@
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <nlohmann/json.hpp>
 #include "gzip.hpp"
 #include "base64.hpp"
@@ -73,6 +74,7 @@ json apply_transform_to_shape(json params);
 json clone_shape(json params);
 json delete_shape(json params);
 json make_cylinder(json params);
+json fillet_edge(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -100,13 +102,15 @@ std::string process_message(std::string message) {
             return delete_shape(data["params"]);
         } else if (type == "makeCylinder") {
             return make_cylinder(data["params"]);
+        } else if (type == "filletEdge") {
+            return fillet_edge(data["params"]);
         }
+        return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
         return result_err(err.GetMessageString());
     } catch (json::exception err) {
         return result_err(err.what());
     }
-    return std::string("TODO");
 }
 
 EMSCRIPTEN_BINDINGS(my_module) {
@@ -351,5 +355,42 @@ json make_cylinder(json params) {
     TopoDS_Shape shape = cylinder.Shape();
     auto id = gen_unique_id();
     shapesHeap[id] = new TopoDS_Shape(shape);
+    return result_ok(id);
+}
+
+json fillet_edge(json params) {
+    auto shapeId = params["shapeId"].template get<std::string>();
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+    auto edgeId = params["edgeId"].template get<std::string>();
+    auto radius = params["radius"].template get<double>();
+    TopExp_Explorer explorer(*shape, TopAbs_EDGE);
+    bool foundEdge = false;
+    TopoDS_Edge edge;
+    TopTools_ShapeMapHasher hasher;
+    while (explorer.More()) {
+        auto at = explorer.Current();
+        if (at.ShapeType() == TopAbs_EDGE) {
+            auto atEdge = TopoDS::Edge(at);
+            auto atEdgeId = std::to_string(hasher(atEdge));
+            if (atEdgeId == edgeId) {
+                edge = atEdge;
+                foundEdge = true;
+                break;
+            }
+        }
+        explorer.Next();
+    }
+    if (!foundEdge) {
+        return result_err("Edge not found");
+    }
+    auto makeFillet = BRepFilletAPI_MakeFillet(*shape);
+    makeFillet.Add(radius, edge);
+    makeFillet.Build();
+    TopoDS_Shape result = makeFillet.Shape();
+    auto id = gen_unique_id();
+    shapesHeap[id] = new TopoDS_Shape(result);
     return result_ok(id);
 }
