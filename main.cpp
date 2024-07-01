@@ -505,7 +505,6 @@ json shape_to_edges(json params) {
             explorer.Next();
         }
     }
-    json result = json::object();
     json result_lines = json::array();
     json result_edge_groups = json::array();
     for (auto line : lines) {
