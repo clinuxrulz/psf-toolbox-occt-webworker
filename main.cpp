@@ -5,6 +5,7 @@
 #include <set>
 #include <BRep_Builder.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -79,6 +80,7 @@ json delete_shape(json params);
 json make_cylinder(json params);
 json shape_to_edges(json params);
 json fillet_edge(json params);
+json cut_v2(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -110,6 +112,8 @@ std::string process_message(std::string message) {
             return shape_to_edges(data["params"]);
         } else if (type == "filletEdge") {
             return fillet_edge(data["params"]);
+        } else if (type == "cutV2") {
+            return cut_v2(data["params"]);
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -557,6 +561,25 @@ json fillet_edge(json params) {
     makeFillet.Add(radius, edge);
     makeFillet.Build();
     TopoDS_Shape result = makeFillet.Shape();
+    auto id = gen_unique_id();
+    shapesHeap[id] = new TopoDS_Shape(result);
+    return result_ok(id);
+}
+
+json cut_v2(json params) {
+    auto shape1Id = params["shape1Id"].template get<std::string>();
+    auto shape2Id = params["shape2Id"].template get<std::string>();
+    if (shapesHeap.find(shape1Id) == shapesHeap.end()) {
+        return result_err("Shape 1 not found");
+    }
+    if (shapesHeap.find(shape2Id) == shapesHeap.end()) {
+        return result_err("Shape 2 not found");
+    }
+    auto shape1 = shapesHeap[shape1Id];
+    auto shape2 = shapesHeap[shape2Id];
+    auto cutBuilder = BRepAlgoAPI_Cut(*shape1, *shape2);
+    cutBuilder.Build();
+    auto result = cutBuilder.Shape();
     auto id = gen_unique_id();
     shapesHeap[id] = new TopoDS_Shape(result);
     return result_ok(id);
