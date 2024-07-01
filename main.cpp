@@ -42,20 +42,18 @@ std::string gen_unique_id() {
     return std::to_string(next_id++);
 }
 
-json result_ok(json result) {
-    json result2 = {
-        {"type", "ok"},
-        {"value", result},
-    };
-    return result2;
+std::string result_ok(json result) {
+    return ((json){
+        { "type", "ok", },
+        { "value", result, },
+    }).dump();
 }
 
-json result_err(std::string message) {
-    json result = {
-        {"type", "err"},
-        {"value", message},
-    };
-    return result;
+std::string result_err(std::string message) {
+    return ((json){
+        { "type", "err", },
+        { "message", "message", },
+    }).dump();
 }
 
 std::string process_message(std::string message) {
@@ -69,8 +67,9 @@ std::string process_message(std::string message) {
             TopoDS_Shape shape = MakeBottle(1.0, 1.0, 1.0);
             auto shapeId = gen_unique_id();
             shapesHeap[shapeId] = new TopoDS_Shape(shape);
-            return std::string("PASSED");
-            //return result_ok((json){ { "shapeId", shapeId, }, });
+            return result_ok((json){
+                { "shapeId", shapeId, },
+            });
         }
     } catch (Standard_Failure err) {
         return result_err(err.GetMessageString());

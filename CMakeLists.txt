@@ -4,11 +4,14 @@ project(PsfToolboxOcctWebWorker CXX)
 set(CMAKE_CXX_STANDARD 14)
 
 add_compile_options(
+    -fexceptions
     -gseparate-dwarf
 )
 
+# -O3 for release
 add_link_options(
-    -O3
+    -fexceptions
+    -O0
     --bind
     -sEXPORTED_RUNTIME_METHODS=['FS']
     -sINITIAL_MEMORY=100MB
