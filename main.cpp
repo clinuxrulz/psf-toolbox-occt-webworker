@@ -2,6 +2,7 @@
 #include <emscripten/bind.h>
 #include <string>
 #include <map>
+#include <BRep_Builder.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -66,6 +67,7 @@ std::string result_err(std::string message) {
 TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
                         const Standard_Real myThickness);
 json save_shape_to_brep_base_64_string(json params);
+json load_shape_from_brep_base_64_string(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -83,6 +85,8 @@ std::string process_message(std::string message) {
             });
         } else if (type == "saveShapeToBrepBase64String") {
             return save_shape_to_brep_base_64_string(data["params"]);
+        } else if (type == "loadShapeFromBrepBase64String") {
+            return load_shape_from_brep_base_64_string(data["params"]);
         }
     } catch (Standard_Failure err) {
         return result_err(err.GetMessageString());
@@ -259,4 +263,26 @@ json save_shape_to_brep_base_64_string(json params) {
     unlink("./output.brep.gz");
     // Return result
     return result_ok(result);
+}
+
+json load_shape_from_brep_base_64_string(json params) {
+    auto base64String = params["base64String"].template get<std::string>();
+    // Base64 decode
+    auto data = base64_decode(base64String);
+    std::ofstream f("./output.brep.gz", std::ios::binary);
+    f << data;
+    f.close();
+    // Decompress file
+    gz_decompress_file("./output.brep.gz", "./output.brep");
+    // Remove compressed file
+    unlink("./output.brep.gz");
+    // Read file
+    TopoDS_Shape shape;
+    BRep_Builder brepBuilder;
+    BRepTools::Read(shape, "./output.brep", brepBuilder);
+    unlink("./output.brep");
+    // Return result
+    auto shapeId = gen_unique_id();
+    shapesHeap[shapeId] = new TopoDS_Shape(shape);
+    return result_ok(shapeId);
 }
