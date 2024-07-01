@@ -71,6 +71,7 @@ json save_shape_to_brep_base_64_string(json params);
 json load_shape_from_brep_base_64_string(json params);
 json apply_transform_to_shape(json params);
 json clone_shape(json params);
+json make_cylinder(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -94,6 +95,8 @@ std::string process_message(std::string message) {
             return apply_transform_to_shape(data["params"]);
         } else if (type == "cloneShape") {
             return clone_shape(data["params"]);
+        } else if (type == "makeCylinder") {
+            return make_cylinder(data["params"]);
         }
     } catch (Standard_Failure err) {
         return result_err(err.GetMessageString());
@@ -323,5 +326,16 @@ json clone_shape(json params) {
     auto shape = shapesHeap[shapeId];
     auto id = gen_unique_id();
     shapesHeap[id] = new TopoDS_Shape(*shape);
+    return result_ok(id);
+}
+
+json make_cylinder(json params) {
+    auto radius = params["radius"].template get<double>();
+    auto height = params["height"].template get<double>();
+    BRepPrimAPI_MakeCylinder cylinder(radius, height);
+    cylinder.Build();
+    TopoDS_Shape shape = cylinder.Shape();
+    auto id = gen_unique_id();
+    shapesHeap[id] = new TopoDS_Shape(shape);
     return result_ok(id);
 }
