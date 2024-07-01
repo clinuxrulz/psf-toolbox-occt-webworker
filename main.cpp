@@ -442,6 +442,7 @@ json shape_to_edges(json params) {
                 auto atFace = TopoDS::Face(at);
                 auto triangulation = BRep_Tool::Triangulation(atFace, aLocation);
                 if (triangulation.IsNull()) {
+                    explorer.Next();
                     continue;
                 }
                 auto tri = triangulation.get();
