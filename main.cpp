@@ -2,7 +2,9 @@
 #include <emscripten/bind.h>
 #include <string>
 #include <map>
+#include <set>
 #include <BRep_Builder.hxx>
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -22,6 +24,7 @@
 #include <Geom_Plane.hxx>
 #include <GC_MakeArcOfCircle.hxx>
 #include <GC_MakeSegment.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 #include <gp.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Quaternion.hxx>
@@ -74,6 +77,7 @@ json apply_transform_to_shape(json params);
 json clone_shape(json params);
 json delete_shape(json params);
 json make_cylinder(json params);
+json shape_to_edges(json params);
 json fillet_edge(json params);
 
 std::string process_message(std::string message) {
@@ -102,6 +106,8 @@ std::string process_message(std::string message) {
             return delete_shape(data["params"]);
         } else if (type == "makeCylinder") {
             return make_cylinder(data["params"]);
+        } else if (type == "shapeToEdges") {
+            return shape_to_edges(data["params"]);
         } else if (type == "filletEdge") {
             return fillet_edge(data["params"]);
         }
@@ -356,6 +362,167 @@ json make_cylinder(json params) {
     auto id = gen_unique_id();
     shapesHeap[id] = new TopoDS_Shape(shape);
     return result_ok(id);
+}
+
+json shape_to_edges(json params) {
+    const double tolerance = 1.0;
+    const double angularTolerance = 5.0;
+    auto shapeId = params["shapeId"].template get<std::string>();
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+    typedef struct EdgeGroup {
+        int start;
+        int count;
+        size_t edgeId;
+    } EdgeGroup;
+    std::set<size_t> recordedEdges;
+    std::vector<double> lines;
+    std::vector<EdgeGroup> edgeGroups;
+    TopTools_ShapeMapHasher hasher;
+    TopLoc_Location aLocation;
+    class AddEdge {
+    private:
+        std::vector<double>& lines;
+        std::vector<EdgeGroup>& edgeGroups;
+        std::set<size_t>& recordedEdges;
+        int start;
+        double previousPoint[3];
+        bool hasPreviousPoint;
+    public:
+        AddEdge(
+            std::vector<double>& lines,
+            std::vector<EdgeGroup>& edgeGroups,
+            std::set<size_t>& recordedEdges
+        ):
+            lines(lines),
+            edgeGroups(edgeGroups),
+            recordedEdges(recordedEdges),
+            hasPreviousPoint(false)
+        {
+        }
+
+        void recordPoint(gp_Pnt p) {
+            if (hasPreviousPoint) {
+                lines.push_back(previousPoint[0]);
+                lines.push_back(previousPoint[1]);
+                lines.push_back(previousPoint[2]);
+                previousPoint[0] = p.X();
+                previousPoint[1] = p.Y();
+                previousPoint[2] = p.Z();
+                lines.push_back(previousPoint[0]);
+                lines.push_back(previousPoint[1]);
+                lines.push_back(previousPoint[2]);
+            } else {
+                previousPoint[0] = p.X();
+                previousPoint[1] = p.Y();
+                previousPoint[2] = p.Z();
+                hasPreviousPoint = true;
+            }
+        }
+
+        void done(size_t edgeHash) {
+            int start = this->start / 3;
+            int count = (lines.size() - start) / 3;
+            size_t edgeId = edgeHash;
+            edgeGroups.push_back(EdgeGroup {
+                start,
+                count,
+                edgeId
+            });
+            recordedEdges.insert(edgeHash);
+        }
+    };
+    {
+        TopExp_Explorer explorer(*shape, TopAbs_FACE);
+        while (explorer.More()) {
+            auto at = explorer.Current();
+            if (at.ShapeType() == TopAbs_FACE) {
+                auto atFace = TopoDS::Face(at);
+                auto triangulation = BRep_Tool::Triangulation(atFace, aLocation);
+                if (triangulation.IsNull()) {
+                    continue;
+                }
+                auto tri = triangulation.get();
+                TopExp_Explorer explorer_2(atFace, TopAbs_EDGE);
+                while (explorer_2.More()) {
+                    auto at_2 = explorer_2.Current();
+                    if (at_2.ShapeType() == TopAbs_EDGE) {
+                        auto atEdge = TopoDS::Edge(at_2);
+                        if (recordedEdges.find(hasher(atEdge)) != recordedEdges.end()) {
+                            explorer_2.Next();
+                            continue;
+                        }
+                        TopLoc_Location edgeLoc;
+                        auto polygon = BRep_Tool::PolygonOnTriangulation(
+                            atEdge,
+                            triangulation,
+                            edgeLoc
+                        );
+                        if (polygon.IsNull()) {
+                            explorer_2.Next();
+                            continue;
+                        }
+                        auto polygon2 = polygon.get();
+                        auto edgeNodes = polygon2->Nodes();
+                        AddEdge adder(lines, edgeGroups, recordedEdges);
+                        for (int i = edgeNodes.Lower(); i <= edgeNodes.Upper(); i++) {
+                            auto p = tri->Node(edgeNodes.Value(i)).Transformed(edgeLoc.Transformation());
+                            adder.recordPoint(p);
+                        }
+                        adder.done(hasher(atEdge));
+                    }
+                    explorer_2.Next();
+                }
+            }
+            explorer.Next();
+        }
+    }
+    {
+        TopExp_Explorer explorer(*shape, TopAbs_EDGE);
+        while (explorer.More()) {
+            auto at = explorer.Current();
+            if (at.ShapeType() == TopAbs_EDGE) {
+                auto atEdge = TopoDS::Edge(at);
+                if (recordedEdges.find(hasher(atEdge)) != recordedEdges.end()) {
+                    explorer.Next();
+                    continue;
+                }
+                auto adaptorCurve = BRepAdaptor_Curve(atEdge);
+                auto tangDef = GCPnts_TangentialDeflection(
+                    adaptorCurve,
+                    tolerance,
+                    angularTolerance  
+                );
+                AddEdge adder(lines, edgeGroups, recordedEdges);
+                for (int j = 0; j < tangDef.NbPoints(); j++) {
+                    auto p = tangDef.Value(j + 1).Transformed(aLocation.Transformation());
+                    adder.recordPoint(p);
+                }
+                adder.done(hasher(atEdge));
+            }
+            explorer.Next();
+        }
+    }
+    json result = json::object();
+    json result_lines = json::array();
+    json result_edge_groups = json::array();
+    for (auto line : lines) {
+        result_lines.push_back(line);
+    }
+    for (auto edgeGroup : edgeGroups) {
+        result_edge_groups.push_back((json){
+            { "start", edgeGroup.start, },
+            { "count", edgeGroup.count, },
+            { "edgeId", edgeGroup.edgeId, },
+        });
+    }
+    json result = {
+        { "lines", result_lines, },
+        { "edgeGroups", result_edge_groups, },
+    };
+    return result_ok(result);
 }
 
 json fillet_edge(json params) {
