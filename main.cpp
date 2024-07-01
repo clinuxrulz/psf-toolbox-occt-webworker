@@ -117,6 +117,8 @@ std::string process_message(std::string message) {
             return cut_v2(data["params"]);
         } else if (type == "shapeFaces") {
             return shape_faces(data["params"]);
+        } else if (type == "fuseShapesWithTransforms") {
+            return fuse_shapes_with_transforms(data["params"]);
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -628,4 +630,61 @@ json shape_faces(json params) {
         result2.push_back(result_row);
     }
     return result_ok(result2);
+}
+
+json fuse_shapes_with_transforms(json params) {
+    std::vector<TopoDS_Shape*> shapes;
+
+    for (auto& shapeIdTransform : params["shapeIdTransformList"]) {
+        auto shapeId = shapeIdTransform["shapeId"].template get<std::string>();
+        auto transform = shapeIdTransform["transform"];
+
+        // Retrieve the shape from the heap
+        auto shapePtr = shapesHeap[shapeId];
+        if (shapePtr == nullptr) {
+            return result_err("Shape not found");
+        }
+
+        // Clone the shape
+        TopoDS_Shape shape = TopoDS_Shape(*shapePtr);
+
+        // Apply transformation
+        gp_Trsf trsf;
+        // Get the quaternion
+        auto q = transform["q"];
+        gp_Quaternion quat(q[1], q[2], q[3], q[0]);
+        trsf.SetRotationPart(quat);
+        // Get the translation
+        auto o = transform["o"];
+        gp_Vec translation(o[0], o[1], o[2]);
+        trsf.SetTranslationPart(translation);
+
+        // Apply the transformation
+        BRepBuilderAPI_Transform transformBuilder(shape, trsf);
+        transformBuilder.Build();
+        TopoDS_Shape shape2 = transformBuilder.Shape();
+
+        shapes.push_back(new TopoDS_Shape(shape2));
+    }
+
+    // Fuse the shapes
+    TopoDS_Shape result;
+    if (shapes.size() == 0) {
+        return result_err("No shapes to fuse");
+    }
+    result = *shapes[0];
+    for (size_t i = 1; i < shapes.size(); ++i) {
+        BRepAlgoAPI_Fuse fuse(result, *shapes[i]);
+        fuse.Build();
+        result = fuse.Shape();
+    }
+    // Clean up the shapes
+    for (auto shape : shapes) {
+        delete shape;
+    }
+
+    // Store the result in the heap and return
+    auto shapeId = gen_unique_id();
+    shapesHeap[shapeId] = new TopoDS_Shape(result);
+    return result_ok(shapeId);
 }
