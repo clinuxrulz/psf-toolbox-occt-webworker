@@ -81,6 +81,7 @@ json make_cylinder(json params);
 json shape_to_edges(json params);
 json fillet_edge(json params);
 json cut_v2(json params);
+json shape_faces(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -114,6 +115,8 @@ std::string process_message(std::string message) {
             return fillet_edge(data["params"]);
         } else if (type == "cutV2") {
             return cut_v2(data["params"]);
+        } else if (type == "shapeFaces") {
+            return shape_faces(data["params"]);
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -583,4 +586,46 @@ json cut_v2(json params) {
     auto id = gen_unique_id();
     shapesHeap[id] = new TopoDS_Shape(result);
     return result_ok(id);
+}
+
+json shape_faces(json params) {
+    auto shapeId = params["shapeId"].template get<std::string>();
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+    typedef struct ResultRow {
+        std::string faceShapeId;
+        std::string faceId;
+    } ResultRow;
+    std::vector<ResultRow> result;
+    TopExp_Explorer explorer(*shape, TopAbs_FACE);
+    int index = 0;
+    while (explorer.More()) {
+        auto at = explorer.Current();
+        if (at.ShapeType() == TopAbs_FACE) {
+            auto face = new TopoDS_Shape(at);
+            auto id = gen_unique_id();
+            shapesHeap[id] = face;
+            std::ostringstream ss;
+            ss << "Face[" << index << "]";
+            auto faceId = ss.str();
+            ResultRow result_row = {
+                .faceShapeId = id,
+                .faceId = faceId,
+            };
+            result.push_back(result_row);
+            index += 1;
+        }
+        explorer.Next();
+    }
+    json result2 = json::array();
+    for (auto row : result) {
+        json result_row = {
+            { "faceShapeId", row.faceShapeId, },
+            { "faceId", row.faceId, },
+        };
+        result2.push_back(result_row);
+    }
+    return result_ok(result2);
 }
