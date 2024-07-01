@@ -84,6 +84,7 @@ json cut_v2(json params);
 json shape_faces(json params);
 json fuse_shapes_with_transforms(json params);
 json extrude_face(json params);
+json get_shape_type(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -123,6 +124,8 @@ std::string process_message(std::string message) {
             return fuse_shapes_with_transforms(data["params"]);
         } else if (type == "extrudeFace") {
             return extrude_face(data["params"]);
+        } else if (type == "getShapeType") {
+            return get_shape_type(data["params"]);
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -744,4 +747,53 @@ json extrude_face(json params) {
     } catch (Standard_Failure const& ex) {
         return result_err(std::string("Failed to extrude: ") + ex.GetMessageString());
     }
+}
+
+json get_shape_type(json params) {
+    auto shapeId = params["shapeId"].get<std::string>();
+
+    // Retrieve the shape
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+    auto shape = shapesHeap[shapeId];
+
+    // Determine the shape type
+    TopAbs_ShapeEnum shapeType = shape->ShapeType();
+
+    std::string shapeTypeName;
+    switch (shapeType) {
+        case TopAbs_COMPOUND:
+            shapeTypeName = "Compound";
+            break;
+        case TopAbs_COMPSOLID:
+            shapeTypeName = "CompSolid";
+            break;
+        case TopAbs_SOLID:
+            shapeTypeName = "Solid";
+            break;
+        case TopAbs_SHELL:
+            shapeTypeName = "Shell";
+            break;
+        case TopAbs_FACE:
+            shapeTypeName = "Face";
+            break;
+        case TopAbs_WIRE:
+            shapeTypeName = "Wire";
+            break;
+        case TopAbs_EDGE:
+            shapeTypeName = "Edge";
+            break;
+        case TopAbs_VERTEX:
+            shapeTypeName = "Vertex";
+            break;
+        case TopAbs_SHAPE:
+            shapeTypeName = "Shape";
+            break;
+        default:
+            return result_err("Unknown shape type.");
+    }
+
+    // Return the shape type
+    return result_ok(shapeTypeName);
 }
