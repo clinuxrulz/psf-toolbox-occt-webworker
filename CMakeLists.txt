@@ -38,6 +38,7 @@ link_libraries(
     TKGeomAlgo
     TKGeomBase
     TKMath
+    TKMesh
     TKOffset
     TKPrim
     TKShHealing
