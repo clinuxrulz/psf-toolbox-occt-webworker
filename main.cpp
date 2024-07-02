@@ -115,6 +115,8 @@ json shape_solids(json params);
 json shape_points(json params);
 json shape_to_mesh_with_uv_coords(json params);
 json get_plane_for_face(json params);
+json make_wires_for_lines(json params);
+json make_arc_shape(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -182,6 +184,10 @@ std::string process_message(std::string message) {
             return shape_to_mesh_with_uv_coords(data["params"]).dump();
         } else if (type == "getPlaneForFace") {
             return get_plane_for_face(data["params"]).dump();
+        } else if (type == "makeWiresForLines") {
+            return make_wires_for_lines(data["params"]).dump();
+        } else if (type == "makeArcShape") {
+            return make_arc_shape(data["params"]).dump();
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -1624,4 +1630,83 @@ json get_plane_for_face(json params)
         {"o", { o.X(), o.Y(), o.Z(), } },
         {"q", { q.W(), q.X(), q.Y(), q.Z(), }},
     });
+}
+
+json make_wires_for_lines(json params) {
+    TopoDS_Compound edges;
+    BRep_Builder builder;
+    builder.MakeCompound(edges);
+    for (auto& line : params["lines"].items()) {
+        gp_Pnt p1(line.value()["v1"][0], line.value()["v1"][1], line.value()["v1"][2]);
+        gp_Pnt p2(line.value()["v2"][0], line.value()["v2"][1], line.value()["v2"][2]);
+        BRepBuilderAPI_MakeEdge edgeBuilder(p1, p2);
+        edgeBuilder.Build();
+        builder.Add(edges, TopoDS::Edge(edgeBuilder.Edge()));
+    }
+    for (auto& arc : params["arcs"].items()) {
+        auto q = gp_Quaternion(arc.value()["transform"]["q"][1], arc.value()["transform"]["q"][2], arc.value()["transform"]["q"][3], arc.value()["transform"]["q"][0]);
+        auto n = q.Multiply(gp_Vec(0.0, 0.0, 1.0));
+        auto u = q.Multiply(gp_Vec(1.0, 0.0, 0.0));
+        auto o = arc.value()["transform"]["o"];
+        gp_Ax2 axis(gp_Pnt(o[0], o[1], o[2]), gp_Dir(n.X(), n.Y(), n.Z()), gp_Dir(u.X(), u.Y(), u.Z()));
+        auto circle = new Geom_Circle(axis, arc.value()["radius"]);
+        Handle_Geom_Curve circleHandle(circle);
+        auto startAngle = arc.value()["startAngle"].template get<double>();
+        auto endAngle = arc.value()["endAngle"].template get<double>();
+        if (endAngle < startAngle) {
+            endAngle += 360.0;
+        }
+        auto arc2 = new Geom_TrimmedCurve(
+            circleHandle,
+            startAngle * M_PI / 180.0,
+            endAngle * M_PI / 180.0,
+            true,
+            true
+        );
+        Handle_Geom_Curve arcHandle(arc2);
+        BRepBuilderAPI_MakeEdge edgeBuilder(arcHandle);
+        edgeBuilder.Build();
+        auto edge = edgeBuilder.Edge();
+        builder.Add(edges, edge);
+    }
+    TopoDS_Shape wires;
+    auto res = BOPAlgo_Tools::EdgesToWires(edges, wires, false, 1e-2);
+    if (res != 0) {
+        return result_err("Error in BOPAlgo_Tools.EdgesToWires");
+    }
+    json result = json::array();
+    TopExp_Explorer explorer(wires, TopAbs_ShapeEnum::TopAbs_WIRE, TopAbs_ShapeEnum::TopAbs_SHAPE);
+    while (explorer.More()) {
+        auto wire = explorer.Current();
+        auto id = gen_unique_id();
+        shapesHeap[id] = new TopoDS_Shape(wire);
+        result.push_back(id);
+        explorer.Next();
+    }
+    return result_ok(result);
+}
+
+json make_arc_shape(json params) {
+    auto arc = params;
+    Geom_Circle* circle = new Geom_Circle(gp_Ax2(), arc["radius"].template get<double>());
+    Handle_Geom_Circle circleHandle(circle);
+    auto startAngle = arc["startAngle"].template get<double>();
+    auto endAngle = arc["endAngle"].template get<double>();
+    if (endAngle < startAngle) {
+        endAngle += 360.0;
+    }
+    auto arc2 = new Geom_TrimmedCurve(
+        circleHandle,
+        startAngle * M_PI / 180.0,
+        endAngle * M_PI / 180.0,
+        true,
+        true
+    );
+    Handle_Geom_Curve arcHandle(arc2);
+    BRepBuilderAPI_MakeEdge edgeBuilder(arcHandle);
+    edgeBuilder.Build();
+    auto edge = edgeBuilder.Edge();
+    auto id = gen_unique_id();
+    shapesHeap[id] = new TopoDS_Shape(edge);
+    return result_ok(id);
 }
