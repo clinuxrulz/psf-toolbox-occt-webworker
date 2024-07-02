@@ -1417,9 +1417,20 @@ FaceTriangulation *triangulate_face(TopoDS_Face face, int index0);
 
 json shape_to_mesh_with_uv_coords(json params)
 {
-    auto tolerance = params["tolerance"].get<double>();
-    auto angularTolerance = params["angularTolerance"].get<double>();
-    auto shapeId = params["shapeId"].get<std::string>();
+    auto shapeId = params["shapeId"].template get<std::string>();
+
+    double tolerance;
+    if (params.contains("tolerance")) {
+        tolerance = params["tolerance"].template get<double>();
+    } else {
+        tolerance = 1.0;
+    }
+    double angularTolerance;
+    if (params.contains("angularTolerance")) {
+        angularTolerance = params["angularTolerance"].template get<double>();
+    } else {
+        angularTolerance = 5.0;
+    }
 
     if (shapesHeap.find(shapeId) == shapesHeap.end()) {
         return result_err("Shape not found: " + shapeId);
