@@ -54,6 +54,7 @@
 #include <nlohmann/json.hpp>
 #include "gzip.hpp"
 #include "base64.hpp"
+#include "util.hpp"
 
 using json = nlohmann::json;
 
@@ -65,25 +66,25 @@ std::string gen_unique_id() {
     return std::to_string(next_id++);
 }
 
-std::string result_ok() {
+json result_ok() {
     return ((json){
         { "type", "ok", },
         { "value", (json){}, }
-    }).dump();
+    });
 }
 
-std::string result_ok(json result) {
+json result_ok(json result) {
     return ((json){
         { "type", "ok", },
         { "value", result, },
-    }).dump();
+    });
 }
 
-std::string result_err(std::string message) {
+json result_err(std::string message) {
     return ((json){
         { "type", "err", },
         { "message", message, },
-    }).dump();
+    });
 }
 
 TopoDS_Shape MakeBottle(const Standard_Real myWidth, const Standard_Real myHeight,
@@ -113,6 +114,7 @@ json make_box(json params);
 json shape_solids(json params);
 json shape_points(json params);
 json shape_to_mesh_with_uv_coords(json params);
+json get_plane_for_face(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -127,57 +129,59 @@ std::string process_message(std::string message) {
             shapesHeap[shapeId] = new TopoDS_Shape(shape);
             return result_ok((json){
                 { "shapeId", shapeId, },
-            });
+            }).dump();
         } else if (type == "saveShapeToBrepBase64String") {
-            return save_shape_to_brep_base_64_string(data["params"]);
+            return save_shape_to_brep_base_64_string(data["params"]).dump();
         } else if (type == "loadShapeFromBrepBase64String") {
-            return load_shape_from_brep_base_64_string(data["params"]);
+            return load_shape_from_brep_base_64_string(data["params"]).dump();
         } else if (type == "applyTransformToShape") {
-            return apply_transform_to_shape(data["params"]);
+            return apply_transform_to_shape(data["params"]).dump();
         } else if (type == "cloneShape") {
-            return clone_shape(data["params"]);
+            return clone_shape(data["params"]).dump();
         } else if (type == "deleteShape") {
-            return delete_shape(data["params"]);
+            return delete_shape(data["params"]).dump();
         } else if (type == "makeCylinder") {
-            return make_cylinder(data["params"]);
+            return make_cylinder(data["params"]).dump();
         } else if (type == "shapeToEdges") {
-            return shape_to_edges(data["params"]);
+            return shape_to_edges(data["params"]).dump();
         } else if (type == "filletEdge") {
-            return fillet_edge(data["params"]);
+            return fillet_edge(data["params"]).dump();
         } else if (type == "cutV2") {
-            return cut_v2(data["params"]);
+            return cut_v2(data["params"]).dump();
         } else if (type == "shapeFaces") {
-            return shape_faces(data["params"]);
+            return shape_faces(data["params"]).dump();
         } else if (type == "fuseShapesWithTransforms") {
-            return fuse_shapes_with_transforms(data["params"]);
+            return fuse_shapes_with_transforms(data["params"]).dump();
         } else if (type == "extrudeFace") {
-            return extrude_face(data["params"]);
+            return extrude_face(data["params"]).dump();
         } else if (type == "getShapeType") {
-            return get_shape_type(data["params"]);
+            return get_shape_type(data["params"]).dump();
         } else if (type == "makeFacesForLines") {
-            return make_faces_for_lines(data["params"]);
+            return make_faces_for_lines(data["params"]).dump();
         } else if (type == "flipFaceNormal") {
-            return flip_face_normal(data["params"]);
+            return flip_face_normal(data["params"]).dump();
         } else if (type == "makeSolidFromFaces") {
-            return make_solid_from_faces(data["params"]);
+            return make_solid_from_faces(data["params"]).dump();
         } else if (type == "intersectLineWithFace") {
-            return intersect_line_with_face(data["params"]);
+            return intersect_line_with_face(data["params"]).dump();
         } else if (type == "doesIntersectSamePlaneFaces") {
-            return does_intersect_same_plane_faces(data["params"]);
+            return does_intersect_same_plane_faces(data["params"]).dump();
         } else if (type == "intersectSamePlaneFaces") {
-            return intersect_same_plane_faces(data["params"]);
+            return intersect_same_plane_faces(data["params"]).dump();
         } else if (type == "differenceSamePlaneFaces") {
-            return difference_same_plane_faces(data["params"]);
+            return difference_same_plane_faces(data["params"]).dump();
         } else if (type == "intersectWithInfinitePrismFromFace") {
-            return intersect_with_infinite_prism_from_face(data["params"]);
+            return intersect_with_infinite_prism_from_face(data["params"]).dump();
         } else if (type == "makeBox") {
-            return make_box(data["params"]);
+            return make_box(data["params"]).dump();
         } else if (type == "shapeSolids") {
-            return shape_solids(data["params"]);
+            return shape_solids(data["params"]).dump();
         } else if (type == "shapePoints") {
-            return shape_points(data["params"]);
+            return shape_points(data["params"]).dump();
         } else if (type == "shapeToMeshWithUVCoords") {
-            return shape_to_mesh_with_uv_coords(data["params"]);
+            return shape_to_mesh_with_uv_coords(data["params"]).dump();
+        } else if (type == "getPlaneForFace") {
+            return get_plane_for_face(data["params"]).dump();
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -1565,4 +1569,59 @@ gp_Pnt2d get_face_uv_coordinate(TopoDS_Face face, gp_Pnt pt)
     Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
     ShapeAnalysis_Surface sas(surface);
     return sas.ValueOfUV(pt, 0.01);
+}
+
+json get_plane_for_face(json params)
+{
+    std::string shapeId = params["shapeId"].template get<std::string>();
+
+    if (shapesHeap.find(shapeId) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+
+    auto shape = shapesHeap[shapeId];
+    auto planeFinder = BRepBuilderAPI_FindPlane(*shape, -1.0);
+    if (!planeFinder.Found()) {
+        return result_ok(nullptr);
+    }
+
+    auto plane = planeFinder.Plane();
+    if (plane.IsNull()) {
+        return result_ok(nullptr);
+    }
+    auto pln = plane->Pln();
+    auto axis = pln.Axis();
+    auto normal = axis.Direction();
+
+    gp_Vec n(normal.X(), normal.Y(), normal.Z());
+    n.Normalize();
+    if (!std::isfinite(n.X()))
+    {
+        return result_ok(nullptr);
+    }
+
+    auto location = pln.Location();
+    gp_Vec o(location.X(), location.Y(), location.Z());
+
+    gp_Vec a = n.Crossed(gp_Vec(1.0, 0.0, 0.0));
+    gp_Vec b = n.Crossed(gp_Vec(0.0, 1.0, 0.0));
+
+    gp_Vec u;
+    if (a.SquareMagnitude() > b.SquareMagnitude())
+    {
+        u = a;
+        u.Normalize();
+    }
+    else
+    {
+        u = b;
+        u.Normalize();
+    }
+
+    gp_Quaternion q = quaternion_from_wu(n, u);
+
+    return result_ok({
+        {"o", { o.X(), o.Y(), o.Z(), } },
+        {"q", { q.W(), q.X(), q.Y(), q.Z(), }},
+    });
 }

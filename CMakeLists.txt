@@ -45,4 +45,4 @@ link_libraries(
     TKTopAlgo
 )
 
-add_executable(PsfToolboxOcctWebWorker main.cpp gzip.cpp base64.cpp)
+add_executable(PsfToolboxOcctWebWorker main.cpp gzip.cpp base64.cpp util.cpp)
