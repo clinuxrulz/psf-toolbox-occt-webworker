@@ -29,6 +29,7 @@
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools.hxx>
 #include <GCE2d_MakeSegment.hxx>
+#include <Geom2d_Line.hxx>
 #include <Geom2d_Ellipse.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
 #include <Geom_Circle.hxx>
@@ -40,6 +41,9 @@
 #include <gp.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Quaternion.hxx>
+#include <HLRBRep_Algo.hxx>
+#include <HLRAlgo_Projector.hxx>
+#include <HLRBRep_HLRToShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Shape.hxx>
@@ -49,6 +53,7 @@
 #include <TopTools_ShapeMapHasher.hxx>
 #include <ShapeFix_ShapeTolerance.hxx>
 #include <Poly_Connect.hxx>
+#include <ProjLib_Projector.hxx>
 #include <StdPrs_ToolTriangulatedShape.hxx>
 #include <ShapeAnalysis_Surface.hxx>
 #include <nlohmann/json.hpp>
@@ -117,6 +122,7 @@ json shape_to_mesh_with_uv_coords(json params);
 json get_plane_for_face(json params);
 json make_wires_for_lines(json params);
 json make_arc_shape(json params);
+json project_shape(json params);
 
 std::string process_message(std::string message) {
     try {
@@ -188,6 +194,8 @@ std::string process_message(std::string message) {
             return make_wires_for_lines(data["params"]).dump();
         } else if (type == "makeArcShape") {
             return make_arc_shape(data["params"]).dump();
+        } else if (type == "projectShape") {
+            return project_shape(data["params"]).dump();
         }
         return std::string("Unrecognized message type: ") + type;
     } catch (Standard_Failure err) {
@@ -1709,4 +1717,175 @@ json make_arc_shape(json params) {
     auto id = gen_unique_id();
     shapesHeap[id] = new TopoDS_Shape(edge);
     return result_ok(id);
+}
+
+std::pair<std::vector<TopoDS_Edge>, std::vector<TopoDS_Edge>> makeProjectedEdges(
+    const TopoDS_Shape &shape,
+    const HLRAlgo_Projector &projector,
+    bool withHiddenLines = true
+);
+
+Handle_Geom2d_Curve edgeToCurve(TopoDS_Edge edge, TopoDS_Face face);
+
+TopoDS_Face makeRectangleFace(const Standard_Real width, const Standard_Real height);
+
+json project_shape(json params) {
+    auto shape_id = params["shape_id"].template get<std::string>();
+    auto camera = params["camera"];
+    auto camera_position = gp_Pnt(camera["position"][0], camera["position"][1], camera["position"][2]);
+    auto camera_direction = gp_Dir(camera["direction"][0], camera["direction"][1], camera["direction"][2]);
+    auto camera_x_axis = gp_Dir(camera["x_axis"][0], camera["x_axis"][1], camera["x_axis"][2]);
+
+    if (shapesHeap.find(shape_id) == shapesHeap.end()) {
+        return result_err("Shape not found");
+    }
+
+    auto shape = shapesHeap[shape_id];
+
+    gp_Ax2 camera_axis(camera_position, camera_direction, camera_x_axis);
+    HLRAlgo_Projector projector(camera_axis);
+
+    auto result = makeProjectedEdges(*shape, projector);
+    auto rectangle = makeRectangleFace(1000.0, 1000.0);
+    for (auto visibleEdge : result.first) {
+        auto curve = edgeToCurve(visibleEdge, rectangle);
+    }
+    for (auto invisibleEdge : result.second) {
+        auto curve = edgeToCurve(invisibleEdge, rectangle);
+    }
+    return result_ok();
+}
+
+std::pair<std::vector<TopoDS_Edge>, std::vector<TopoDS_Edge>> makeProjectedEdges(
+    const TopoDS_Shape &shape,
+    const HLRAlgo_Projector &projector,
+    bool withHiddenLines)
+{
+    // Use stack-allocated variables for local objects
+    HLRBRep_Algo hiddenLineRemoval;
+
+    // Add the shape to the algorithm
+    hiddenLineRemoval.Add(shape, 0);
+
+    // Set the projector for the hidden line removal algorithm
+    hiddenLineRemoval.Projector(projector);
+
+    // Update the algorithm to compute hidden lines
+    hiddenLineRemoval.Update();
+
+    // Hide the hidden lines
+    hiddenLineRemoval.Hide();
+
+    // Convert the result of the hidden line removal to shapes
+    HLRBRep_HLRToShape hlrShapes(&hiddenLineRemoval);
+
+    // Get the visible edges using stack-allocated vectors
+    std::vector<TopoDS_Edge> visibleEdges;
+    TopExp_Explorer edgeExplorer;
+
+    // Iterate over the visible edges of the various compounds
+    for (edgeExplorer.Init(hlrShapes.VCompound(), TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
+    {
+        visibleEdges.push_back(TopoDS::Edge(edgeExplorer.Current()));
+    }
+    for (edgeExplorer.Init(hlrShapes.Rg1LineVCompound(), TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
+    {
+        visibleEdges.push_back(TopoDS::Edge(edgeExplorer.Current()));
+    }
+    for (edgeExplorer.Init(hlrShapes.OutLineVCompound(), TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
+    {
+        visibleEdges.push_back(TopoDS::Edge(edgeExplorer.Current()));
+    }
+
+    // Ensure the 3D curves for visible edges are correctly built
+    for (const auto &edge : visibleEdges)
+    {
+        BRepLib::BuildCurves3d(edge);
+    }
+
+    // Get the hidden edges (if requested) using stack-allocated vectors
+    std::vector<TopoDS_Edge> hiddenEdges;
+    if (withHiddenLines)
+    {
+        for (edgeExplorer.Init(hlrShapes.HCompound(), TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
+        {
+            hiddenEdges.push_back(TopoDS::Edge(edgeExplorer.Current()));
+        }
+        for (edgeExplorer.Init(hlrShapes.Rg1LineHCompound(), TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
+        {
+            hiddenEdges.push_back(TopoDS::Edge(edgeExplorer.Current()));
+        }
+        for (edgeExplorer.Init(hlrShapes.OutLineHCompound(), TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
+        {
+            hiddenEdges.push_back(TopoDS::Edge(edgeExplorer.Current()));
+        }
+
+        // Ensure the 3D curves for hidden edges are correctly built
+        for (const auto &edge : hiddenEdges)
+        {
+            BRepLib::BuildCurves3d(edge);
+        }
+    }
+
+    return std::make_pair(std::move(visibleEdges), std::move(hiddenEdges));
+}
+
+Handle_Geom2d_Curve edgeToCurve(TopoDS_Edge edge, TopoDS_Face face) {
+    BRepAdaptor_Curve2d adaptor(edge, face);
+
+    auto trimmed = new Geom2d_TrimmedCurve(adaptor.Curve(), adaptor.FirstParameter(), adaptor.LastParameter(), true, true);
+
+    if (edge.Orientation() == TopAbs_REVERSED) {
+        trimmed->Reverse();
+    }
+
+    return trimmed;
+}
+
+TopoDS_Face makeRectangleFace(const Standard_Real width, const Standard_Real height)
+{
+    // Create the XY plane
+    gp_Pnt origin(0.0, 0.0, 0.0);
+    gp_Dir normal(0.0, 0.0, 1.0);
+    Handle(Geom_Plane) plane = new Geom_Plane(origin, normal);
+
+    // Create the rectangle's 2D edges
+    gp_Pnt2d p1(0.0, 0.0);
+    gp_Pnt2d p2(width, 0.0);
+    gp_Pnt2d p3(width, height);
+    gp_Pnt2d p4(0.0, height);
+
+    // Create direction vectors for the lines
+    gp_Dir2d dirX(1.0, 0.0); // Horizontal direction
+    gp_Dir2d dirY(0.0, 1.0); // Vertical direction
+
+    // Create the lines using gp_Dir2d
+    Handle(Geom2d_Line) line1 = new Geom2d_Line(p1, dirX);
+    Handle(Geom2d_Line) line2 = new Geom2d_Line(p2, dirY);
+    Handle(Geom2d_Line) line3 = new Geom2d_Line(p3, dirX.Reversed());
+    Handle(Geom2d_Line) line4 = new Geom2d_Line(p4, dirY.Reversed());
+
+    // Trim the lines to create the rectangle's edges
+    Handle(Geom2d_TrimmedCurve) trimmedLine1 = new Geom2d_TrimmedCurve(line1, 0.0, width);
+    Handle(Geom2d_TrimmedCurve) trimmedLine2 = new Geom2d_TrimmedCurve(line2, 0.0, height);
+    Handle(Geom2d_TrimmedCurve) trimmedLine3 = new Geom2d_TrimmedCurve(line3, 0.0, width);
+    Handle(Geom2d_TrimmedCurve) trimmedLine4 = new Geom2d_TrimmedCurve(line4, 0.0, height);
+
+    // Create the edges
+    TopoDS_Edge edge1 = BRepBuilderAPI_MakeEdge(trimmedLine1, plane);
+    TopoDS_Edge edge2 = BRepBuilderAPI_MakeEdge(trimmedLine2, plane);
+    TopoDS_Edge edge3 = BRepBuilderAPI_MakeEdge(trimmedLine3, plane);
+    TopoDS_Edge edge4 = BRepBuilderAPI_MakeEdge(trimmedLine4, plane);
+
+    // Create the wire
+    BRepBuilderAPI_MakeWire makeWire;
+    makeWire.Add(edge1);
+    makeWire.Add(edge2);
+    makeWire.Add(edge3);
+    makeWire.Add(edge4);
+    TopoDS_Wire wire = makeWire.Wire();
+
+    // Create the face
+    BRepBuilderAPI_MakeFace makeFace(wire);
+    return makeFace.Face();
 }

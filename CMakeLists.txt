@@ -37,6 +37,7 @@ link_libraries(
     TKG3d
     TKGeomAlgo
     TKGeomBase
+    TKHLR
     TKMath
     TKMesh
     TKOffset
